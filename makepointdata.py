@@ -2,7 +2,7 @@
 import os, sys, csv, time, math
 from optparse import OptionParser
 import numpy
-import netcdf4_functions as nffun
+import utils.netcdf4_functions as nffun
 from netCDF4 import Dataset
 
 parser = OptionParser()
