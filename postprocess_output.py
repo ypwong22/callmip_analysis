@@ -8,7 +8,7 @@ all input files concatenated along the time dimension.
 
 Variable correspondence
 -----------------------
-NEE = - NEP
+NEE = NEP
 Qle = EFLX_LH_TOT
 Qh = FSH
 Ground heat flux = FGR
@@ -393,8 +393,8 @@ if __name__ == '__main__':
     callmip_exp_no = '1'
     site_name = 'DK-Sor'
 
-    prior_case = '20260401_DK-Sor_ICB20TRCNPRDCTCBC_default'
-    post_case  = '20260401_DK-Sor_ICB20TRCNPRDCTCBC_optimized'
+    prior_case = '20260422_DK-Sor_ICB20TRCNPRDCTCBC_default'
+    post_case  = '20260422_DK-Sor_ICB20TRCNPRDCTCBC_optimized'
 
     cal_years = range(1997, 2014)
     val_years = range(2014, 2015)
