@@ -203,9 +203,10 @@ def load_likelihood_inputs(
     sim = load_target_variable(member, spec.sim_var, spec.sim_prefix, year_bracket)
 
     # unit match between obs and sim
-    if spec.sim_var in ['NEP']:
-        # gC/m^2/s -> gC/m^2/d
-        sim *= 86400
+    if spec.sim_var in ["NEP"]:
+        # gC/m^2/s -> gC/m^2/d; flip sign: it seems this file is defined with the
+        # normal NEE sign convention, instead of the ALMA sign convention
+        sim *= -86400
 
     # Align on shared coords; drop points where any is missing.
     if all("time" in da.dims for da in (sim, obs, sigma)):
@@ -365,6 +366,7 @@ def weighted_moments(
     ex2 = np.where(valid, num2 / np.where(valid, wsum, 1.0), np.nan)
     var = ex2 - mean ** 2
     var = np.where(var < 0, 0.0, var)  # clamp tiny negative numerical noise
+
     return mean, var
 
 
@@ -377,11 +379,11 @@ class PosteriorUCConfig:
     output_path: Path
     ensemble_root: Path
     target_vars: Sequence[str]          # e.g. ["NEP", "EFLX_LH_TOT", "FSH"]
+    target_years: tuple[int, int]       # e.g. (1997, 2014)
     target_file_prefix: str             # e.g. "daily_output"
     likelihood_specs: Sequence[LikelihoodSpec]
     likelihood_fn: LikelihoodFn = gaussian_log_likelihood
     include_mean: bool = True
-    include_std: bool = True              # if False, <VAR>_uc is variance only
     member_pattern: re.Pattern = re.compile(r"^g\d+$")
 
 
@@ -419,7 +421,7 @@ def compute_posterior_uncertainty(cfg: PosteriorUCConfig) -> xr.Dataset:
         per_member = []
         ref_da = None
         for m in members:
-            da = load_target_variable(m, varname, cfg.target_file_prefix)
+            da = load_target_variable(m, varname, cfg.target_file_prefix, cfg.target_years)
             if ref_da is None:
                 ref_da = da
             else:
@@ -430,29 +432,31 @@ def compute_posterior_uncertainty(cfg: PosteriorUCConfig) -> xr.Dataset:
         stacked = np.stack(per_member, axis=0)  # (N, time, grid)
         mean, var = weighted_moments(stacked, weights.weights)
 
-        # --- 4) Reshape (time, grid) -> (time, lat, lon) ---
+        # --- 4) (time, grid) ---
         da_uc = xr.DataArray(
-            var if not cfg.include_std else np.sqrt(var),
+            np.sqrt(var).reshape(-1,1),
             dims=("time", "lndgrid"),
             coords={
-                "time": template["time"].values,
+                "time": ref_da["time"],
                 "lndgrid": [1],
             },
-            name=varname,
-            attrs={"long_name": f"Posterior {'std. dev.' if cfg.include_std else 'variance'} of {varname}"},
+            name=f"{varname}_uc",
+            attrs={"long_name": f"Posterior std. dev of {varname}",
+                   "units": ref_da.attrs.get("units", "")}
         )
         out[da_uc.name] = da_uc
 
         if cfg.include_mean:
             da_mean = xr.DataArray(
-                mean,
+                mean.reshape(-1,1),
                 dims=("time", "lndgrid"),
                 coords={
-                    "time": template["time"].values,
+                    "time": ref_da["time"],
                     "lndgrid": [1],
                 },
                 name=f"{varname}_mean",
-                attrs={"long_name": f"Posterior mean of {varname}"},
+                attrs={"long_name": f"Posterior mean of {varname}",
+                       "units": ref_da.attrs.get("units", "")},
             )
 
             out[da_mean.name] = da_mean
@@ -477,6 +481,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Folder containing gXXXXX subdirectories.")
     p.add_argument("--target-vars", nargs="+", required=True,
                    help="Target variable names to propagate (e.g. GPP NEE).")
+    p.add_argument("--target-years", nargs=2, type=int, metavar=("START", "END"), required=True,
+                   help="Target time period defined by first and last year (e.g. 1997 2014)")
     p.add_argument("--target-file-prefix", required=True,
                    help="Prefix of per-year NetCDFs: <prefix>.<year>-01-01-00000.nc.")
     p.add_argument("--obs-vars", nargs="+", required=True,
@@ -485,8 +491,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Full path to the observational data")
     p.add_argument("--output", type=Path, required=True,
                    help="Full path to the output file.")
-    p.add_argument("--variance-only", action="store_true",
-                   help="Store variance in <VAR>_uc instead of standard deviation.")
     p.add_argument("--no-mean", action="store_true",
                    help="Skip writing <VAR>_mean.")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -511,11 +515,11 @@ def main(argv: Iterable[str] | None = None) -> None:
         ensemble_root=args.ensemble_root,
         target_vars=args.target_vars,
         target_file_prefix=args.target_file_prefix,
+        target_years=args.target_years,
         likelihood_specs=spec_list,
         likelihood_fn=gaussian_log_likelihood,
         output_path=args.output,
         include_mean=not args.no_mean,
-        include_std=not args.variance_only,
     )
     compute_posterior_uncertainty(cfg)
 
@@ -525,7 +529,7 @@ if __name__ == "__main__":
     Example usage
 
     python postprocess_uc.py --ensemble-root ${SHARDIR}/../zdr/CalLMIP/e3sm_run/UQ/ensembles/20260311_DK-Sor_ICB20TRCNPRDCTCBC_landuse \
-        --target-vars NEP EFLX_LH_TOT FSH --target-file-prefix 20260311_DK-Sor_ICB20TRCNPRDCTCBC_landuse.elm.h1 \
+        --target-vars NEP EFLX_LH_TOT FSH --target-years 1997 2014 --target-file-prefix 20260311_DK-Sor_ICB20TRCNPRDCTCBC_landuse.elm.h1 \
         --obs-vars NEE Qle Qh --obs-file ../data/DK-Sor/DK-Sor_daily_aggregated_1997-2013_FLUXNET2015_Flux.nc \
         --output ../output/DK-Sor/posterior_uncertainty.nc
     """
