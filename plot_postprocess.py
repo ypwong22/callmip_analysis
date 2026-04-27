@@ -40,7 +40,7 @@ ds_obs       = xr.open_dataset(obs_file).squeeze(drop=True)
 
 # ── variable lists ────────────────────────────────────────────────────────────
 
-all_vars = [v for v in ds_cal_prior.data_vars]
+all_vars = [v for v in ds_cal_post.data_vars]
 data_vars = [v for v in all_vars if not v.endswith("_uc")]
 uc_vars   = {v.removesuffix("_uc") for v in all_vars if v.endswith("_uc")}
 
@@ -91,9 +91,9 @@ def maybe_convert(values, units):
 
 # ── plot ──────────────────────────────────────────────────────────────────────
 
-ncols = 3
+ncols = 2
 nrows = math.ceil(len(data_vars) / ncols)
-fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 3.5 * nrows),
+fig, axes = plt.subplots(nrows, ncols, figsize=(10 * ncols, 3.5 * nrows),
                          sharex=False, constrained_layout=True)
 axes_flat = axes.flatten()
 
@@ -125,8 +125,9 @@ for idx, var in enumerate(data_vars):
         _, y_uc = get_series(ds_cal_post, ds_val_post, f"{var}_uc")
         y_uc, _ = maybe_convert(y_uc, units)
         _, y_uc = rolling10(t_post, y_uc)
-        ax.fill_between(t_post, y_post - y_uc, y_post + y_uc,
+        ax.fill_between(t_post, y_post - 2*y_uc, y_post + 2*y_uc,
                         color=COLOR_POST, alpha=0.20, linewidth=0)
+        print(var, np.mean(y_post - 2*y_uc), np.mean(y_post + 2*y_uc))
 
     # ── observations ──────────────────────────────────────────────────────
     obs_varname = f"{var}_daily"
@@ -148,9 +149,6 @@ for idx, var in enumerate(data_vars):
 
     # ── Cal / Val boundary ────────────────────────────────────────────────
     ax.axvline(boundary, color="black", lw=1.2, ls=":", alpha=0.7)
-
-    # ── shading for Val period ────────────────────────────────────────────
-    ax.axvspan(val_start, t_post[-1], color="gray", alpha=0.08, zorder=0)
 
     # ── labels & formatting ───────────────────────────────────────────────
     ax.set_title(f"{var}\n{long}", fontsize=8, pad=3)
@@ -176,8 +174,8 @@ for ax in axes_flat[len(data_vars):]:
 # ── figure-level annotations ──────────────────────────────────────────────────
 site_name = cal_prior_path.split("_Cal_")[0]
 fig.suptitle(f"{site_name}  —  Prior vs Posterior time series\n"
-             f"(shaded region = Val period, dotted line = Cal/Val boundary, "
-             f"±1σ shading where available)",
+             f"(dotted line = Cal/Val boundary, "
+             f"±2σ shading where available)",
              fontsize=10, y=1.03)
 
 fig.savefig(out_path, dpi=300, bbox_inches="tight")
